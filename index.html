@@ -994,29 +994,48 @@ function renderBudgetStatus(){
 
 // AI
 async function runAIInsights(){
+  showPage('insights');
+  document.getElementById('aiArea').innerHTML='<div style="text-align:center;padding:60px;color:var(--text2)"><div style="font-size:48px;margin-bottom:16px">⏳</div><div style="font-size:16px;font-weight:600">מנתח נתונים...</div></div>';
+
   var apiKey=state.settings.claudeKey;
   if(!apiKey){
     document.getElementById('aiArea').innerHTML='<div class="alert alert-warn"><span>⚠️</span><span>נא להזין Claude API Key בהגדרות</span></div><button class="btn btn-primary mt8" onclick="showPage(\'settings\')">⚙️ הגדרות</button>';
-    showPage('insights');return;
+    return;
   }
-  showPage('insights');
-  document.getElementById('aiArea').innerHTML='<div style="text-align:center;padding:60px;color:var(--text2)"><div style="font-size:48px;margin-bottom:16px;animation:spin 2s linear infinite">⚙️</div><div style="font-size:16px;font-weight:600">מנתח נתונים...</div></div>';
+
   var txs=getMonthTx(state.currentMonth);
   var catTotals={};
   txs.filter(function(t){return t.type==='expense';}).forEach(function(t){catTotals[t.category]=(catTotals[t.category]||0)+t.amount;});
-  var totalExp=Object.values(catTotals).reduce(function(a,b){return a+b;},0);
+  var totalExp=Object.values(catTotals).reduce(function(a,b){return a+b;},0)+getFixedExpTotal();
   var totalInc=getRecurringTotal()+txs.filter(function(t){return t.type==='income';}).reduce(function(s,t){return s+t.amount;},0);
-  var prompt='אתה יועץ פיננסי ישראלי. נתח את ההוצאות לחודש '+monthLabel(state.currentMonth)+':\nהכנסות: ₪'+fmt(totalInc)+'\nהוצאות: ₪'+fmt(totalExp)+'\nמאזן: ₪'+fmt(totalInc-totalExp)+'\n'+Object.entries(catTotals).map(function(e){return getCat(e[0]).name+': ₪'+fmt(e[1]);}).join('\n')+'\n\nספק בעברית עם כותרות:\n1. ניתוח כולל (2-3 משפטים)\n2. 3 תובנות עיקריות\n3. 3-5 המלצות חיסכון ספציפיות עם סכומים\n4. מה לעשות עם החיסכון';
+
+  var fixedList=(state.fixedExpenses||[]).filter(function(e){return e.active;}).map(function(e){return'• '+e.name+': ₪'+fmt(e.amount);}).join('\n');
+  var recList=(state.recurringIncomes||[]).filter(function(r){return r.active;}).map(function(r){return'• '+r.name+': ₪'+fmt(r.amount);}).join('\n');
+
+  var prompt='אתה יועץ פיננסי ישראלי. נתח את ההוצאות המשפחתיות לחודש '+monthLabel(state.currentMonth)+' ותן המלצות מעשיות:\n\n'+
+    '💵 סה"כ הכנסות: ₪'+fmt(totalInc)+'\n'+
+    '💸 סה"כ הוצאות: ₪'+fmt(totalExp)+'\n'+
+    '📊 מאזן: ₪'+fmt(totalInc-totalExp)+'\n\n'+
+    '📌 הוצאות קבועות:\n'+(fixedList||'לא הוגדרו')+'\n\n'+
+    '🔄 הכנסות קבועות:\n'+(recList||'לא הוגדרו')+'\n\n'+
+    '📋 הוצאות לפי קטגוריה:\n'+Object.entries(catTotals).sort(function(a,b){return b[1]-a[1];}).map(function(e){return'• '+getCat(e[0]).name+': ₪'+fmt(e[1]);}).join('\n')+'\n\n'+
+    'בבקשה ספק:\n1. ניתוח מצב כולל (2-3 משפטים)\n2. 3 תובנות עיקריות\n3. 3-5 המלצות חיסכון ספציפיות עם סכומים\n4. המלצה על מה לעשות עם החיסכון';
+
   try{
-    var res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1500,messages:[{role:'user',content:prompt}]})});
+    var res=await fetch('https://claude-proxy.alonturchin.workers.dev',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01'},
+      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1500,messages:[{role:'user',content:prompt}]})
+    });
     var data=await res.json();
+    if(data.error){throw new Error(data.error);}
     var text=data.content&&data.content[0]?data.content[0].text:'שגיאה בקבלת תשובה';
     document.getElementById('aiArea').innerHTML=
       '<div style="white-space:pre-wrap;line-height:1.8;font-size:14px;color:var(--text)">'+text+'</div>'+
-      '<div style="margin-top:24px;display:flex;gap:10px">'+
-        '<button class="btn btn-ghost btn-sm" onclick="runAIInsights()">🔄 נתח מחדש</button>'+
-      '</div>';
-  }catch(e){document.getElementById('aiArea').innerHTML='<div class="alert alert-warn"><span>❌</span><span>'+e.message+'</span></div>';}
+      '<div style="margin-top:24px"><button class="btn btn-ghost btn-sm" onclick="runAIInsights()">🔄 נתח מחדש</button></div>';
+  }catch(e){
+    document.getElementById('aiArea').innerHTML='<div class="alert alert-warn"><span>❌</span><span>'+e.message+'</span></div>';
+  }
 }
 
 // TELEGRAM
