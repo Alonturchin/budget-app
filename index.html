@@ -1040,6 +1040,93 @@ function editCategory(id){
   overlay.onclick=function(e){if(e.target===overlay)closeOverlay();};
   document.body.appendChild(overlay);
 }
+function openDrillDown(catId){
+  var cat=getCat(catId);
+
+  // Get all months with data
+  var allMonths=[...new Set(state.transactions.map(function(t){return t.cycleMonth||t.date.slice(0,7);}))].sort();
+
+  // Monthly totals for this category
+  var monthlyData=allMonths.map(function(ym){
+    var total=getMonthTx(ym).filter(function(t){return t.type==='expense'&&t.category===catId;}).reduce(function(s,t){return s+t.amount;},0);
+    return{ym:ym,total:total};
+  }).filter(function(d){return d.total>0;});
+
+  // All transactions in this category across all time
+  var allTxs=state.transactions.filter(function(t){return t.type==='expense'&&t.category===catId;}).sort(function(a,b){return b.date.localeCompare(a.date);});
+
+  var avg=monthlyData.length?monthlyData.reduce(function(s,d){return s+d.total;},0)/monthlyData.length:0;
+  var max=monthlyData.length?Math.max.apply(null,monthlyData.map(function(d){return d.total;})):0;
+
+  var overlay=document.createElement('div');
+  overlay.className='overlay';
+  overlay.style.alignItems='flex-start';
+  overlay.style.overflowY='auto';
+  overlay.style.padding='20px';
+  overlay.innerHTML=
+    '<div class="modal" style="width:680px;max-width:95vw;max-height:90vh;overflow-y:auto">'+
+      // Header
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">'+
+        '<div style="display:flex;align-items:center;gap:10px">'+
+          '<div style="width:14px;height:14px;border-radius:50%;background:'+cat.color+'"></div>'+
+          '<div style="font-size:18px;font-weight:800">'+cat.icon+' '+cat.name+'</div>'+
+        '</div>'+
+        '<button class="btn btn-ghost btn-sm" onclick="closeOverlay()">✕ סגור</button>'+
+      '</div>'+
+
+      // Stats row
+      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px">'+
+        '<div style="background:var(--surface2);border-radius:12px;padding:14px;text-align:center">'+
+          '<div style="font-size:11px;color:var(--text2);margin-bottom:4px">סה"כ עסקאות</div>'+
+          '<div style="font-size:20px;font-weight:800;color:'+cat.color+'">'+allTxs.length+'</div>'+
+        '</div>'+
+        '<div style="background:var(--surface2);border-radius:12px;padding:14px;text-align:center">'+
+          '<div style="font-size:11px;color:var(--text2);margin-bottom:4px">ממוצע חודשי</div>'+
+          '<div style="font-size:20px;font-weight:800;color:'+cat.color+'">₪'+fmt(avg)+'</div>'+
+        '</div>'+
+        '<div style="background:var(--surface2);border-radius:12px;padding:14px;text-align:center">'+
+          '<div style="font-size:11px;color:var(--text2);margin-bottom:4px">חודש שיא</div>'+
+          '<div style="font-size:20px;font-weight:800;color:'+cat.color+'">₪'+fmt(max)+'</div>'+
+        '</div>'+
+      '</div>'+
+
+      // Monthly chart bars
+      (monthlyData.length>0?
+        '<div style="margin-bottom:20px">'+
+          '<div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">הוצאות לפי חודש</div>'+
+          monthlyData.map(function(d){
+            var pct=max>0?(d.total/max*100):0;
+            return '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">'+
+              '<div style="min-width:70px;font-size:12px;color:var(--text2);text-align:right">'+monthLabel(d.ym)+'</div>'+
+              '<div style="flex:1;background:var(--border);border-radius:4px;height:8px;overflow:hidden">'+
+                '<div style="width:'+pct+'%;height:100%;background:'+cat.color+';border-radius:4px;transition:width .6s ease"></div>'+
+              '</div>'+
+              '<div style="min-width:70px;font-size:13px;font-weight:700;color:'+cat.color+'">₪'+fmt(d.total)+'</div>'+
+            '</div>';
+          }).join('')+
+        '</div>'
+      :'')+
+
+      // Transactions list
+      '<div>'+
+        '<div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">כל העסקאות</div>'+
+        allTxs.slice(0,50).map(function(t){
+          return '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--surface2);border-radius:10px;margin-bottom:6px">'+
+            '<div>'+
+              '<div style="font-size:13px;font-weight:600">'+t.desc+'</div>'+
+              '<div style="font-size:11px;color:var(--text2);margin-top:2px">'+t.date+' · '+monthLabel(t.cycleMonth||t.date.slice(0,7))+'</div>'+
+            '</div>'+
+            '<div style="font-weight:800;color:var(--red)">₪'+fmt(t.amount)+'</div>'+
+          '</div>';
+        }).join('')+
+        (allTxs.length>50?'<div style="text-align:center;color:var(--text2);font-size:12px;margin-top:8px">מוצגות 50 עסקאות ראשונות מתוך '+allTxs.length+'</div>':'')+
+      '</div>'+
+    '</div>';
+
+  overlay.onclick=function(e){if(e.target===overlay)closeOverlay();};
+  document.body.appendChild(overlay);
+}
+
 function closeOverlay(){var o=document.querySelector('.overlay');if(o)o.remove();}
 function saveCat(id){
   var newCat=document.getElementById('catSel').value;
