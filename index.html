@@ -738,7 +738,7 @@ function addFixedExpense(){
   if(name==='אחר')name=document.getElementById('feCustomName').value.trim()||'הוצאה קבועה';
   var amount=parseFloat(document.getElementById('feAmount').value);
   if(!amount||isNaN(amount)){showToast('⚠️ נא להזין סכום');return;}
-  state.fixedExpenses=state.fixedExpenses||[];
+  state.merchantMemory=state.merchantMemory||{};
   state.fixedExpenses.push({name:name,amount:amount,day:parseInt(document.getElementById('feDay').value)||1,category:document.getElementById('feCat').value,active:document.getElementById('feActive').value==='1',note:document.getElementById('feNote').value.trim()});
   saveState();showToast('✅ הוצאה קבועה נוספה');renderFixedExpenses();
 }
@@ -965,6 +965,20 @@ function parseDate(s){
 }
 
 function autoCategory(desc){
+  // Check merchant memory first
+  var merchantKey=desc.trim().toLowerCase();
+  if(state.merchantMemory&&state.merchantMemory[merchantKey]){
+    return state.merchantMemory[merchantKey];
+  }
+  // Partial match — check if any saved merchant is contained in desc
+  if(state.merchantMemory){
+    var keys=Object.keys(state.merchantMemory);
+    for(var i=0;i<keys.length;i++){
+      if(merchantKey.indexOf(keys[i])!==-1||keys[i].indexOf(merchantKey)!==-1){
+        return state.merchantMemory[keys[i]];
+      }
+    }
+  }
   var d=desc.toLowerCase();
   if(/(שופרסל|רמי לוי|מגה|ויקטורי|יינות|קו-אופ|מחסני|חצי חינם|אושר עד|carrefour|קרפור|שרית צמח|סופר טל|טיב טעם|יוחננוף)/.test(d))return'supermarket';
   if(/(מסעדה|פיצה|מקדונלד|קפה|סושי|שווארמה|גלידה|burger|cafe|wolt|מאפיה|פיצוצית|דליקטסן|פלאפל|שניצליגה|וניליה|חי טעימות|י\.י\.ש\.ל|ואכלת|בית הפנקייק|קייטרינג)/.test(d))return'restaurant';
@@ -1049,9 +1063,17 @@ function editCategory(id){
 }
 function closeOverlay(){var o=document.querySelector('.overlay');if(o)o.remove();}
 function saveCat(id){
+  var newCat=document.getElementById('catSel').value;
   var tx=state.transactions.find(function(t){return t.id===id;});
-  if(tx){tx.category=document.getElementById('catSel').value;saveState();}
-  closeOverlay();renderTransactions();showToast('✅ קטגוריה עודכנה');
+  if(tx){
+    // Save merchant memory
+    var merchantKey=tx.desc.trim().toLowerCase();
+    state.merchantMemory=state.merchantMemory||{};
+    state.merchantMemory[merchantKey]=newCat;
+    tx.category=newCat;
+    saveState();
+  }
+  closeOverlay();renderTransactions();showToast('✅ קטגוריה עודכנה ונשמרה לפעמים הבאות');
 }
 
 // BUDGET
