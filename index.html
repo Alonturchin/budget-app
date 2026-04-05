@@ -411,13 +411,25 @@ tr:hover td { background: var(--surface2); }
     <!-- INSIGHTS -->
     <div id="page-insights" class="page">
       <div class="topbar"><div class="page-title">המלצות AI</div></div>
+      <div class="card" style="margin-bottom:20px">
+        <div class="card-title">בחר סוג ניתוח</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn btn-primary btn-sm" onclick="setAnalysisType('month')" id="btn-month">📅 חודש נוכחי</button>
+          <button class="btn btn-ghost btn-sm" onclick="setAnalysisType('year')" id="btn-year">📆 ניתוח שנתי</button>
+          <button class="btn btn-ghost btn-sm" onclick="setAnalysisType('compare')" id="btn-compare">📊 השוואת חודשים</button>
+        </div>
+        <div id="compareControls" style="display:none;margin-top:16px" class="fg">
+          <div><label>חודש א'</label><input type="month" id="compareMonth1" style="width:160px"></div>
+          <div><label>חודש ב'</label><input type="month" id="compareMonth2" style="width:160px"></div>
+        </div>
+      </div>
       <div class="card">
         <div id="aiArea">
           <div style="text-align:center;padding:60px 20px;color:var(--text2)">
             <div style="font-size:56px;margin-bottom:16px;filter:drop-shadow(0 0 20px rgba(77,159,255,.5))">🤖</div>
             <div style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:8px">ניתוח AI חכם</div>
             <div style="margin-bottom:24px;font-size:14px">קבל תובנות והמלצות מותאמות אישית על ההוצאות שלך</div>
-            <button class="btn btn-primary" onclick="runAIInsights()">🔍 נתח את ההוצאות שלי</button>
+            <button class="btn btn-primary" onclick="runAIInsights()">🔍 נתח עכשיו</button>
           </div>
         </div>
       </div>
@@ -993,6 +1005,23 @@ function renderBudgetStatus(){
 }
 
 // AI
+var analysisType = 'month';
+
+function setAnalysisType(type){
+  analysisType = type;
+  ['month','year','compare'].forEach(function(t){
+    var btn = document.getElementById('btn-'+t);
+    if(btn) btn.className = t===type ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm';
+  });
+  document.getElementById('compareControls').style.display = type==='compare' ? 'flex' : 'none';
+  document.getElementById('aiArea').innerHTML =
+    '<div style="text-align:center;padding:60px 20px;color:var(--text2)">'+
+    '<div style="font-size:56px;margin-bottom:16px;filter:drop-shadow(0 0 20px rgba(77,159,255,.5))">🤖</div>'+
+    '<div style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:8px">'+
+    (type==='month'?'ניתוח חודשי':type==='year'?'ניתוח שנתי':'השוואת חודשים')+'</div>'+
+    '<button class="btn btn-primary" onclick="runAIInsights()">🔍 נתח עכשיו</button></div>';
+}
+
 async function runAIInsights(){
   showPage('insights');
   document.getElementById('aiArea').innerHTML='<div style="text-align:center;padding:60px;color:var(--text2)"><div style="font-size:48px;margin-bottom:16px">⏳</div><div style="font-size:16px;font-weight:600">מנתח נתונים...</div></div>';
@@ -1003,23 +1032,66 @@ async function runAIInsights(){
     return;
   }
 
-  var txs=getMonthTx(state.currentMonth);
-  var catTotals={};
-  txs.filter(function(t){return t.type==='expense';}).forEach(function(t){catTotals[t.category]=(catTotals[t.category]||0)+t.amount;});
-  var totalExp=Object.values(catTotals).reduce(function(a,b){return a+b;},0)+getFixedExpTotal();
-  var totalInc=getRecurringTotal()+txs.filter(function(t){return t.type==='income';}).reduce(function(s,t){return s+t.amount;},0);
+  var prompt='';
 
-  var fixedList=(state.fixedExpenses||[]).filter(function(e){return e.active;}).map(function(e){return'• '+e.name+': ₪'+fmt(e.amount);}).join('\n');
-  var recList=(state.recurringIncomes||[]).filter(function(r){return r.active;}).map(function(r){return'• '+r.name+': ₪'+fmt(r.amount);}).join('\n');
+  if(analysisType==='month'){
+    var txs=getMonthTx(state.currentMonth);
+    var catTotals={};
+    txs.filter(function(t){return t.type==='expense';}).forEach(function(t){catTotals[t.category]=(catTotals[t.category]||0)+t.amount;});
+    var totalExp=Object.values(catTotals).reduce(function(a,b){return a+b;},0)+getFixedExpTotal();
+    var totalInc=getRecurringTotal()+txs.filter(function(t){return t.type==='income';}).reduce(function(s,t){return s+t.amount;},0);
+    var fixedList=(state.fixedExpenses||[]).filter(function(e){return e.active;}).map(function(e){return'• '+e.name+': ₪'+fmt(e.amount);}).join('\n');
+    var recList=(state.recurringIncomes||[]).filter(function(r){return r.active;}).map(function(r){return'• '+r.name+': ₪'+fmt(r.amount);}).join('\n');
+    prompt='אתה יועץ פיננסי ישראלי. נתח את ההוצאות המשפחתיות לחודש '+monthLabel(state.currentMonth)+':\n\n'+
+      '💵 הכנסות: ₪'+fmt(totalInc)+'\n💸 הוצאות: ₪'+fmt(totalExp)+'\n📊 מאזן: ₪'+fmt(totalInc-totalExp)+'\n\n'+
+      '📌 הוצאות קבועות:\n'+(fixedList||'לא הוגדרו')+'\n\n'+
+      '🔄 הכנסות קבועות:\n'+(recList||'לא הוגדרו')+'\n\n'+
+      '📋 הוצאות לפי קטגוריה:\n'+Object.entries(catTotals).sort(function(a,b){return b[1]-a[1];}).map(function(e){return'• '+getCat(e[0]).name+': ₪'+fmt(e[1]);}).join('\n')+'\n\n'+
+      'ספק: 1. ניתוח כולל 2. 3 תובנות 3. 3-5 המלצות חיסכון עם סכומים 4. מה לעשות עם החיסכון';
 
-  var prompt='אתה יועץ פיננסי ישראלי. נתח את ההוצאות המשפחתיות לחודש '+monthLabel(state.currentMonth)+' ותן המלצות מעשיות:\n\n'+
-    '💵 סה"כ הכנסות: ₪'+fmt(totalInc)+'\n'+
-    '💸 סה"כ הוצאות: ₪'+fmt(totalExp)+'\n'+
-    '📊 מאזן: ₪'+fmt(totalInc-totalExp)+'\n\n'+
-    '📌 הוצאות קבועות:\n'+(fixedList||'לא הוגדרו')+'\n\n'+
-    '🔄 הכנסות קבועות:\n'+(recList||'לא הוגדרו')+'\n\n'+
-    '📋 הוצאות לפי קטגוריה:\n'+Object.entries(catTotals).sort(function(a,b){return b[1]-a[1];}).map(function(e){return'• '+getCat(e[0]).name+': ₪'+fmt(e[1]);}).join('\n')+'\n\n'+
-    'בבקשה ספק:\n1. ניתוח מצב כולל (2-3 משפטים)\n2. 3 תובנות עיקריות\n3. 3-5 המלצות חיסכון ספציפיות עם סכומים\n4. המלצה על מה לעשות עם החיסכון';
+  } else if(analysisType==='year'){
+    // Get all months with data
+    var allMonths=[...new Set(state.transactions.map(function(t){return t.cycleMonth||t.date.slice(0,7);}))].sort();
+    var yearSummary='';
+    var yearTotalExp=0, yearTotalInc=0;
+    var monthlySummary=allMonths.map(function(ym){
+      var txs=getMonthTx(ym);
+      var exp=txs.filter(function(t){return t.type==='expense';}).reduce(function(s,t){return s+t.amount;},0)+getFixedExpTotal();
+      var inc=getRecurringTotal()+txs.filter(function(t){return t.type==='income';}).reduce(function(s,t){return s+t.amount;},0);
+      yearTotalExp+=exp; yearTotalInc+=inc;
+      return'• '+monthLabel(ym)+': הוצאות ₪'+fmt(exp)+' | הכנסות ₪'+fmt(inc)+' | מאזן ₪'+fmt(inc-exp);
+    }).join('\n');
+    prompt='אתה יועץ פיננסי ישראלי. נתח את ההוצאות המשפחתיות השנתיות ('+allMonths.length+' חודשים):\n\n'+
+      '💵 סה"כ הכנסות שנתי: ₪'+fmt(yearTotalInc)+'\n'+
+      '💸 סה"כ הוצאות שנתי: ₪'+fmt(yearTotalExp)+'\n'+
+      '📊 מאזן שנתי: ₪'+fmt(yearTotalInc-yearTotalExp)+'\n'+
+      '📅 ממוצע חודשי הוצאות: ₪'+fmt(yearTotalExp/Math.max(allMonths.length,1))+'\n\n'+
+      '📋 פירוט לפי חודשים:\n'+monthlySummary+'\n\n'+
+      'ספק: 1. ניתוח שנתי כולל 2. החודשים הטובים והגרועים 3. מגמות שזיהית 4. 5 המלצות לשיפור לשנה הבאה 5. יעד חיסכון שנתי מומלץ';
+
+  } else {
+    // Compare two months
+    var m1=document.getElementById('compareMonth1').value||state.currentMonth;
+    var m2=document.getElementById('compareMonth2').value;
+    if(!m2){document.getElementById('aiArea').innerHTML='<div class="alert alert-warn"><span>⚠️</span><span>נא לבחור שני חודשים להשוואה</span></div>';return;}
+    function monthData(ym){
+      var txs=getMonthTx(ym);
+      var catTotals={};
+      txs.filter(function(t){return t.type==='expense';}).forEach(function(t){catTotals[t.category]=(catTotals[t.category]||0)+t.amount;});
+      var exp=Object.values(catTotals).reduce(function(a,b){return a+b;},0)+getFixedExpTotal();
+      var inc=getRecurringTotal()+txs.filter(function(t){return t.type==='income';}).reduce(function(s,t){return s+t.amount;},0);
+      return{exp:exp,inc:inc,catTotals:catTotals};
+    }
+    var d1=monthData(m1), d2=monthData(m2);
+    prompt='אתה יועץ פיננסי ישראלי. השווה בין שני חודשים:\n\n'+
+      '📅 '+monthLabel(m1)+': הוצאות ₪'+fmt(d1.exp)+' | הכנסות ₪'+fmt(d1.inc)+' | מאזן ₪'+fmt(d1.inc-d1.exp)+'\n'+
+      '📅 '+monthLabel(m2)+': הוצאות ₪'+fmt(d2.exp)+' | הכנסות ₪'+fmt(d2.inc)+' | מאזן ₪'+fmt(d2.inc-d2.exp)+'\n\n'+
+      '📋 הוצאות לפי קטגוריה:\n'+
+      [...new Set(Object.keys(d1.catTotals).concat(Object.keys(d2.catTotals)))].map(function(id){
+        return'• '+getCat(id).name+': '+monthLabel(m1)+' ₪'+fmt(d1.catTotals[id]||0)+' | '+monthLabel(m2)+' ₪'+fmt(d2.catTotals[id]||0);
+      }).join('\n')+'\n\n'+
+      'ספק: 1. סיכום ההבדלים העיקריים 2. מה השתפר ומה החמיר 3. קטגוריות עם שינוי משמעותי 4. המלצות על בסיס ההשוואה';
+  }
 
   try{
     var res=await fetch('https://claude-proxy.alonturchin.workers.dev',{
@@ -1028,7 +1100,7 @@ async function runAIInsights(){
       body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1500,messages:[{role:'user',content:prompt}]})
     });
     var data=await res.json();
-    if(data.error){throw new Error(data.error);}
+    if(data.error){throw new Error(typeof data.error==='object'?data.error.message:data.error);}
     var text=data.content&&data.content[0]?data.content[0].text:'שגיאה בקבלת תשובה';
     document.getElementById('aiArea').innerHTML=
       '<div style="white-space:pre-wrap;line-height:1.8;font-size:14px;color:var(--text)">'+text+'</div>'+
