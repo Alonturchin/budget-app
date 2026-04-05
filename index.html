@@ -363,7 +363,15 @@ tr:hover td { background: var(--surface2); }
       </div>
     </div>
 
-    <!-- UPLOAD -->
+      <div class="card mt16">
+        <div class="card-title">🔍 בדיקת קובץ (Debug)</div>
+        <div class="upload-area" onclick="document.getElementById('debugFile').click()">
+          <div class="upload-icon">🔍</div>
+          <div style="font-weight:600">העלה קובץ לבדיקה</div>
+          <input type="file" id="debugFile" accept=".csv,.xlsx,.xls" style="display:none" onchange="debugFile(this)">
+        </div>
+        <pre id="debugOutput" style="margin-top:12px;font-size:11px;color:var(--text2);white-space:pre-wrap;max-height:300px;overflow:auto"></pre>
+      </div>
     <div id="page-upload" class="page">
       <div class="topbar">
         <div class="page-title">העלאת קבצים</div>
@@ -816,6 +824,26 @@ function renderCardGrid(){
       '<input type="file" id="fu_'+card.id+'" accept=".csv,.xlsx,.xls" style="display:none" onchange="handleUpload(this,\''+card.id+'\',\''+month+'\')">'+
     '</div>';
   }).join('');
+}
+
+function debugFile(input){
+  var file=input.files[0];if(!file)return;
+  var reader=new FileReader();
+  reader.onload=function(e){
+    var wb=XLSX.read(e.target.result,{type:'array',cellDates:true,raw:false});
+    var out='גיליונות: '+wb.SheetNames.join(', ')+'\n\n';
+    wb.SheetNames.forEach(function(name){
+      var ws=wb.Sheets[name];
+      var rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
+      out+='=== גיליון: '+name+' ('+rows.length+' שורות) ===\n';
+      rows.slice(0,10).forEach(function(r,i){
+        out+='שורה '+(i+1)+': '+JSON.stringify(r)+'\n';
+      });
+      out+='\n';
+    });
+    document.getElementById('debugOutput').textContent=out;
+  };
+  reader.readAsArrayBuffer(file);
 }
 
 function handleUpload(input,cardId,month){
