@@ -825,16 +825,21 @@ function handleUpload(input,cardId,month){
   var reader=new FileReader();
   reader.onload=function(e){
     try{
-      var rows=[];
+      var allRows=[];
       if(file.name.match(/\.xlsx?$/i)){
         var wb=XLSX.read(e.target.result,{type:'array',cellDates:true});
-        rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:''});
+        // Try all sheets, collect all rows
+        wb.SheetNames.forEach(function(name){
+          var ws=wb.Sheets[name];
+          var rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
+          allRows=allRows.concat(rows);
+        });
       } else {
         var text=new TextDecoder('utf-8').decode(e.target.result);
-        rows=text.split(/\r?\n/).map(function(l){return l.split('\t').map(function(c){return c.replace(/"/g,'').trim();});});
+        allRows=text.split(/\r?\n/).map(function(l){return l.split('\t').map(function(c){return c.replace(/"/g,'').trim();});});
       }
       state.transactions=state.transactions.filter(function(t){return!(t.source===cardId&&t.cycleMonth===month);});
-      var parsed=parseRows(rows,card.type,cardId,month);
+      var parsed=parseRows(allRows,card.type,cardId,month);
       if(!parsed.length){showToast('⚠️ לא נמצאו עסקאות');renderCardGrid();return;}
       state.transactions=state.transactions.concat(parsed);
       state.uploadLog=state.uploadLog||{};
@@ -855,10 +860,17 @@ function removeUpload(cardId,month){
 function parseRows(rows,cardType,cardId,cycleMonth){
   var txs=[],hi=-1;
 
-  // Find header row — must contain תאריך or date
-  for(var i=0;i<rows.length;i++){
+  // Find header row — look for row with date-like first cell after a תאריך header
+  for(var i=0;i<Math.min(rows.length,15);i++){
     var joined=rows[i].map(function(c){return String(c).replace(/\n/g,'');}).join('');
     if(/(תאריך|date)/i.test(joined)){hi=i;break;}
+  }
+  // If not found, try to find first row where col[0] looks like a date
+  if(hi===-1){
+    for(var i=0;i<Math.min(rows.length,15);i++){
+      var c0=String(rows[i][0]||'').trim();
+      if(/^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}$/.test(c0)){hi=i-1;break;}
+    }
   }
   if(hi===-1)hi=0;
 
