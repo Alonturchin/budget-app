@@ -833,26 +833,6 @@ function renderCardGrid(){
   }).join('');
 }
 
-function debugFile(input){
-  var file=input.files[0];if(!file)return;
-  var reader=new FileReader();
-  reader.onload=function(e){
-    var wb=XLSX.read(e.target.result,{type:'array',cellDates:true,raw:false});
-    var out='גיליונות: '+wb.SheetNames.join(', ')+'\n\n';
-    wb.SheetNames.forEach(function(name){
-      var ws=wb.Sheets[name];
-      var rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
-      out+='=== גיליון: '+name+' ('+rows.length+' שורות) ===\n';
-      rows.slice(0,10).forEach(function(r,i){
-        out+='שורה '+(i+1)+': '+JSON.stringify(r)+'\n';
-      });
-      out+='\n';
-    });
-    document.getElementById('debugOutput').textContent=out;
-  };
-  reader.readAsArrayBuffer(file);
-}
-
 function handleUpload(input,cardId,month){
   var file=input.files[0];if(!file)return;
   var card=CARDS.find(function(c){return c.id===cardId;});
