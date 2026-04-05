@@ -854,17 +854,26 @@ function removeUpload(cardId,month){
 
 function parseRows(rows,cardType,cardId,cycleMonth){
   var txs=[],hi=-1;
+
+  // Find header row — must contain תאריך or date
   for(var i=0;i<rows.length;i++){
-    var joined=rows[i].join('').replace(/\n/g,'');
+    var joined=rows[i].map(function(c){return String(c).replace(/\n/g,'');}).join('');
     if(/(תאריך|date)/i.test(joined)){hi=i;break;}
   }
   if(hi===-1)hi=0;
+
+  // Footer keywords to stop parsing
+  var stopWords=/(את המידע|סיכום חיובים|לפרטים נוספים|סה"כ|סהכ|total)/i;
+
   for(var i=hi+1;i<rows.length;i++){
     var cols=rows[i].map(function(c){return String(c).replace(/\n/g,' ').trim();});
-    if(!cols[0]||cols.join('').trim()==='')continue;
-    if(/(סה"כ|סהכ|total|דמי חבר)/i.test(cols[0]))continue;
+    var rowStr=cols.join('').trim();
+    if(!rowStr)continue;
+    if(stopWords.test(rowStr))break;
+
     try{
       var date,desc,amount;
+
       if(cardType==='isracard'){
         date=parseDate(cols[0]);desc=cols[1];
         amount=parseFloat(String(cols[4]||cols[2]||'0').replace(/[,₪\s]/g,''));
@@ -872,17 +881,32 @@ function parseRows(rows,cardType,cardId,cycleMonth){
         date=parseDate(cols[0]);desc=cols[1];
         amount=parseFloat(String(cols[5]||cols[4]||'0').replace(/[,₪\s]/g,''));
       } else {
-        // cal / ויזה שופרסל — תאריך, שם, סכום עסקה, סכום חיוב
-        date=parseDate(cols[0]);desc=cols[1];
+        // cal / ויזה שופרסל — תאריך | שם | סכום עסקה | סכום חיוב | סוג | ענף | הערות
+        date=parseDate(cols[0]);
+        desc=cols[1];
         amount=parseFloat(String(cols[3]||cols[2]||'0').replace(/[,₪\s]/g,''));
       }
+
       if(!date||!desc||isNaN(amount)||amount===0)continue;
-      // skip fee rows
+
+      var category='bank';
       if(/(דמי כרטיס|דמי חבר|עמלה)/i.test(desc)){
-        txs.push({id:Date.now().toString()+Math.random(),date:date,amount:Math.abs(amount),desc:desc,category:'bank',type:'expense',source:cardId,cycleMonth:cycleMonth,note:''});
-        continue;
+        category='bank';
+      } else {
+        category=autoCategory(desc);
       }
-      txs.push({id:Date.now().toString()+Math.random(),date:date,amount:Math.abs(amount),desc:desc,category:autoCategory(desc),type:amount<0?'income':'expense',source:cardId,cycleMonth:cycleMonth,note:cols[6]||cols[5]||''});
+
+      txs.push({
+        id:Date.now().toString()+Math.random(),
+        date:date,
+        amount:Math.abs(amount),
+        desc:desc,
+        category:category,
+        type:amount<0?'income':'expense',
+        source:cardId,
+        cycleMonth:cycleMonth,
+        note:cols[6]||cols[5]||''
+      });
     }catch(e){}
   }
   return txs;
