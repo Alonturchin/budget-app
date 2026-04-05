@@ -532,6 +532,9 @@ function changeMonth(d){
   m+=d;if(m>12){m=1;y++;}if(m<1){m=12;y--;}
   state.currentMonth=y+'-'+(m<10?'0':'')+m;
   renderDashboard();
+
+  // Check and send smart alerts
+  setTimeout(checkAndSendAlerts, 3000);
 }
 function monthLabel(ym){
   var parts=ym.split('-');
@@ -1097,7 +1100,114 @@ async function runAIInsights(){
   }catch(e){document.getElementById('aiArea').innerHTML='<div class="alert alert-warn"><span>❌</span><span>'+e.message+'</span></div>';}
 }
 
-// ===================== TELEGRAM =====================
+// ===================== SMART TELEGRAM ALERTS =====================
+async function checkAndSendAlerts(){
+  if(!state.settings.tgToken||!state.settings.tgChatId)return;
+  var today=new Date();
+  var lastAlertDate=state.lastAlertDate||'';
+  var todayStr=today.toISOString().slice(0,10);
+
+  // 1. Monthly summary on cycle day
+  if(today.getDate()===state.settings.cycleDay&&lastAlertDate!==todayStr){
+    await sendMonthlySummary();
+    state.lastAlertDate=todayStr;
+    saveState();
+  }
+
+  // 2. Spike alerts — only if we uploaded new data this session
+  await checkSpikeAlerts();
+
+  // 3. Opportunity alerts — check savings opportunities
+  await checkOpportunityAlerts();
+}
+
+async function sendMonthlySummary(){
+  var txs=getMonthTx(state.currentMonth);
+  var totalExp=txs.filter(function(t){return t.type==='expense';}).reduce(function(s,t){return s+t.amount;},0)+getFixedExpTotal();
+  var totalInc=getRecurringTotal()+txs.filter(function(t){return t.type==='income';}).reduce(function(s,t){return s+t.amount;},0);
+  var balance=totalInc-totalExp;
+  var emoji=balance>=0?'✅':'❌';
+  var msg='📅 <b>סיכום חודשי — '+monthLabel(state.currentMonth)+'</b>\n\n'+
+    '💵 הכנסות: ₪'+fmt(totalInc)+'\n'+
+    '💸 הוצאות: ₪'+fmt(totalExp)+'\n'+
+    emoji+' '+(balance>=0?'רווח':'הפסד')+': ₪'+fmt(Math.abs(balance));
+  await sendTelegram(msg);
+}
+
+async function checkSpikeAlerts(){
+  var cy=parseInt(state.currentMonth.split('-')[0]),cm=parseInt(state.currentMonth.split('-')[1]);
+  var prevMonths=[];
+  for(var i=1;i<=3;i++){var y=cy,m=cm-i;if(m<1){m+=12;y--;}var ym=y+'-'+(m<10?'0':'')+m;if(getMonthTx(ym).filter(function(t){return t.type==='expense';}).length>0)prevMonths.push(ym);}
+  if(!prevMonths.length)return;
+
+  var avgCat={};
+  prevMonths.forEach(function(ym){
+    getMonthTx(ym).filter(function(t){return t.type==='expense';}).forEach(function(t){avgCat[t.category]=(avgCat[t.category]||0)+t.amount;});
+  });
+  Object.keys(avgCat).forEach(function(id){avgCat[id]/=prevMonths.length;});
+
+  var catTotals={};
+  getMonthTx(state.currentMonth).filter(function(t){return t.type==='expense';}).forEach(function(t){catTotals[t.category]=(catTotals[t.category]||0)+t.amount;});
+
+  var spikes=[];
+  Object.entries(catTotals).forEach(function(e){
+    var avg=avgCat[e[0]];
+    if(avg&&e[1]>avg*1.4&&e[1]-avg>300){
+      spikes.push({cat:getCat(e[0]),amt:e[1],avg:avg,diff:e[1]-avg,pct:Math.round((e[1]-avg)/avg*100)});
+    }
+  });
+
+  if(spikes.length>0){
+    // Only send if not sent today
+    var alertKey='spike_'+state.currentMonth;
+    if(state.sentAlerts&&state.sentAlerts[alertKey])return;
+    var msg='⚠️ <b>התראת הוצאות חריגות</b>\n\n';
+    spikes.forEach(function(s){
+      msg+=s.cat.icon+' '+s.cat.name+': ₪'+fmt(s.amt)+' (+'+s.pct+'% מהממוצע)\n';
+    });
+    msg+='\nממוצע מבוסס על '+prevMonths.length+' חודשים אחרונים';
+    await sendTelegram(msg);
+    state.sentAlerts=state.sentAlerts||{};
+    state.sentAlerts[alertKey]=true;
+    saveState();
+  }
+}
+
+async function checkOpportunityAlerts(){
+  var allMonths=[...new Set(state.transactions.map(function(t){return t.cycleMonth||t.date.slice(0,7);}))].sort();
+  if(allMonths.length<3)return;
+
+  // Check if sent this month already
+  var oppKey='opp_'+state.currentMonth;
+  if(state.sentAlerts&&state.sentAlerts[oppKey])return;
+
+  // Calculate average monthly savings
+  var monthlyBalances=allMonths.slice(-3).map(function(ym){
+    var txs=getMonthTx(ym);
+    var exp=txs.filter(function(t){return t.type==='expense';}).reduce(function(s,t){return s+t.amount;},0)+getFixedExpTotal();
+    var inc=getRecurringTotal()+txs.filter(function(t){return t.type==='income';}).reduce(function(s,t){return s+t.amount;},0);
+    return inc-exp;
+  });
+
+  var avgBalance=monthlyBalances.reduce(function(a,b){return a+b;},0)/monthlyBalances.length;
+  var allPositive=monthlyBalances.every(function(b){return b>0;});
+
+  if(allPositive&&avgBalance>500){
+    var totalSaved=monthlyBalances.reduce(function(a,b){return a+b;},0);
+    var msg='💡 <b>הזדמנות חיסכון!</b>\n\n'+
+      'שמנו לב שחסכתם בממוצע ₪'+fmt(avgBalance)+' בחודש ב-3 החודשים האחרונים 🎉\n\n'+
+      'סה"כ חיסכון: ₪'+fmt(totalSaved)+'\n\n'+
+      '💰 <b>מה אפשר לעשות עם זה?</b>\n'+
+      (avgBalance>=2000?'• העבירו לקרן נאמנות או תיק השקעות\n':'')+ 
+      (avgBalance>=500?'• פתחו חיסכון לטווח קצר (3-6 חודשים)\n':'')+ 
+      '• הוסיפו לקרן חירום (מטרה: 3 משכורות)\n'+
+      '• שקלו הגדלת הפקדה לפנסיה';
+    await sendTelegram(msg);
+    state.sentAlerts=state.sentAlerts||{};
+    state.sentAlerts[oppKey]=true;
+    saveState();
+  }
+}
 async function sendTelegram(msg){
   var tok=state.settings.tgToken,cid=state.settings.tgChatId;if(!tok||!cid)return;
   try{await fetch('https://api.telegram.org/bot'+tok+'/sendMessage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({chat_id:cid,text:msg,parse_mode:'HTML'})});}catch(e){}
